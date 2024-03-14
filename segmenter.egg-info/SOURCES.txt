@@ -1,0 +1,12 @@
+README.md
+setup.py
+model/__init__.py
+model/decoder.py
+model/segmenter.py
+model/vit.py
+model/configs/__init__.py
+model/configs/utils.py
+segmenter.egg-info/PKG-INFO
+segmenter.egg-info/SOURCES.txt
+segmenter.egg-info/dependency_links.txt
+segmenter.egg-info/top_level.txt
