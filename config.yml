@@ -11,7 +11,7 @@ dataset:
   flair1:
     batch_size: 16
     crop_size: 256
-    data_path: /run/user/108646/gvfs/sftp:host=flexo/scratcht/FLAIR_1/train
+    data_path: /scratcht/FLAIR_1/train
     domains:
     - D060_2021
     - D070_2020

@@ -4,7 +4,7 @@ import time
 import tabulate
 import fnmatch
 import random
-import segmentation_models_pytorch as smp
+
 
 from rasterio.windows import Window
 from argparse import ArgumentParser
@@ -18,61 +18,65 @@ from model.datasets import FlairDs
 
 from model.configs.utils import *
 from model.datasets.utils import *
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-parser = ArgumentParser()
-parser.add_argument("--initial_lr", type=float, default = 0.001)
-parser.add_argument("--final_lr", type=float, default = 0.0005)
-parser.add_argument("--lr_milestones", nargs=2, type=float, default=(20,80))
-parser.add_argument("--epoch_len", type=int, default=10000)
-parser.add_argument("--sup_batch_size", type=int, default=8)
-parser.add_argument("--crop_size", type=int, default=256)
-parser.add_argument("--workers", default=6, type=int)
-parser.add_argument('--img_aug', type=str, default='d4')
-parser.add_argument('--max_epochs', type=int, default=120)
-parser.add_argument('--train_split_coef', type = float, default = 0.7)   
-parser.add_argument('--sequence_path', type = str, default = "sequence_{}/")
-parser.add_argument('--strategy', type = str, default = 'FT')
-parser.add_argument('--buffer_size', type = float, default = 0.2)
-args = parser.parse_args()
 
-config_file ="/run/user/108646/gvfs/sftp:host=flexo/d/maboum/Segmenter/model/configs/config.yml"
-config = load_config_yaml(file_path =  config_file)
-
-# domain_list =  os.listdir(directory_path)
-# selected_domains = select_random_domains(domain_list, num_domains_to_select = seq_length , seed = config["seed"])
-# print("Selected Domains:", selected_domains)
-# update_domain_sequence(config_file, selected_domains)
-# print("Domain sequence updated in", config_file)
-
-dataset = config["dataset"]
-data_config = dataset["flair1"]
-
-seed = config["seed"]
-
-directory_path = data_config["data_path"]
-seq_length = data_config["seq_length"]
-data_sequence = data_config["domains"]
-epochs = data_config['epochs']
-eval_freq = data_config['eval_freq']
-im_size = data_config["im_size"]
-lr = data_config['learning_rate']
-win_size = data_config["window_size"]
-win_stride = data_config["window_stride"]
-n_channels = data_config['n_channels']
-n_class = data_config["n_cls"]
-
-selected_model = "vit_base_patch16_384"
-model = config["model"]
-model_config = model[selected_model]
 
 def main(): 
-    columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']            
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    parser = ArgumentParser()
+    parser.add_argument("--initial_lr", type=float, default = 0.001)
+    parser.add_argument("--final_lr", type=float, default = 0.0005)
+    parser.add_argument("--lr_milestones", nargs=2, type=float, default=(20,80))
+    parser.add_argument("--epoch_len", type=int, default=10000)
+    parser.add_argument("--sup_batch_size", type=int, default=8)
+    parser.add_argument("--crop_size", type=int, default=256)
+    parser.add_argument("--workers", default=6, type=int)
+    parser.add_argument('--img_aug', type=str, default='d4')
+    parser.add_argument('--max_epochs', type=int, default=120)
+    parser.add_argument('--train_split_coef', type = float, default = 0.7)   
+    parser.add_argument('--sequence_path', type = str, default = "sequence_{}/")
+    parser.add_argument('--strategy', type = str, default = 'FT')
+    parser.add_argument('--buffer_size', type = float, default = 0.2)
+    args = parser.parse_args()
+
+    config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
+    config = load_config_yaml(file_path =  config_file)
+
+    # domain_list =  os.listdir(directory_path)
+    # selected_domains = select_random_domains(domain_list, num_domains_to_select = seq_length , seed = config["seed"])
+    # print("Selected Domains:", selected_domains)
+    # update_domain_sequence(config_file, selected_domains)
+    # print("Domain sequence updated in", config_file)
+
+    dataset = config["dataset"]
+    data_config = dataset["flair1"]
+
+    seed = config["seed"]
+
+    directory_path = data_config["data_path"]
+    print(directory_path)
+    seq_length = data_config["seq_length"]
+    data_sequence = data_config["domains"]
+    epochs = data_config['epochs']
+    eval_freq = data_config['eval_freq']
+    im_size = data_config["im_size"]
+    lr = data_config['learning_rate']
+    win_size = data_config["window_size"]
+    win_stride = data_config["window_stride"]
+    n_channels = data_config['n_channels']
+    n_class = data_config["n_cls"]
+
+    selected_model = "vit_base_patch16_384"
+    model = config["model"]
+    model_config = model[selected_model]
+    columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']     
+    print(columns)       
     try:
       torch.manual_seed(seed)
       torch.cuda.manual_seed(seed)
       torch.autograd.set_detect_anomaly(True) 
 
       list_of_tuples = [(item, data_sequence.index(item)) for item in data_sequence]
+      print(list_of_tuples)
       if not os.path.exists(args.sequence_path.format(seed)):
           os.makedirs(args.sequence_path.format(seed))  
           
@@ -81,12 +85,14 @@ def main():
       
       step = 0
       idx = step-1 if step !=0 else step
-      for domain in data_sequence:
+      for step,domain in enumerate(data_sequence):
           
           img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
+          print(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
           random.shuffle(img)
           train_imgs += img[:int(len(img)*args.train_split_coef)]
           test_imgs += img[int(len(img)*args.train_split_coef):]
+          print(img)
           if args.strategy == 'FT':
               domain_img = [item for item in train_imgs if  fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
           random.shuffle(domain_img)
@@ -103,9 +109,7 @@ def main():
                             enc_depth=12, dec_depth=6, enc_embdd=768, dec_embdd=768, n_cls=n_class)
           # Callbacks 
           early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
-          # train_writer_comment = (model_path+"_visualisation")
-          # train_writer = SummaryWriter(train_writer_comment)   
-          # image_segmentation_visualisation = SegmentationImagesVisualisation(writer = train_writer,freq = 20)
+         
           print(segmodel)
           optimizer = SGD(
                 segmodel.parameters(),
@@ -124,7 +128,8 @@ def main():
         # print(error_message, error_trace)
 
 if __name__ == "__main__":
-   main()   
+    
+    main()   
                      
         
  # if step !=0 and args.strategy == 'ER':
