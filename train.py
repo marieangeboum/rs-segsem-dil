@@ -12,10 +12,11 @@ from argparse import ArgumentParser
 import torch
 import torch.nn as nn
 import wandb
-
+from torch.optim import SGD, Adam
+from torch.optim.lr_scheduler import LambdaLR
 from model.segmenter import Segmenter
 from model.datasets import FlairDs
-
+from torchmetrics import Accuracy
 from model.configs.utils import *
 from model.datasets.utils import *
 
@@ -32,7 +33,7 @@ def main():
     parser.add_argument("--workers", default=6, type=int)
     parser.add_argument('--img_aug', type=str, default='d4')
     parser.add_argument('--max_epochs', type=int, default=120)
-    parser.add_argument('--train_split_coef', type = float, default = 0.7)   
+    parser.add_argument('--train_split_coef', type = float, default = 0.75)   
     parser.add_argument('--sequence_path', type = str, default = "sequence_{}/")
     parser.add_argument('--strategy', type = str, default = 'FT')
     parser.add_argument('--buffer_size', type = float, default = 0.2)
@@ -40,13 +41,25 @@ def main():
 
     config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
     config = load_config_yaml(file_path =  config_file)
-
+    
     # domain_list =  os.listdir(directory_path)
     # selected_domains = select_random_domains(domain_list, num_domains_to_select = seq_length , seed = config["seed"])
     # print("Selected Domains:", selected_domains)
     # update_domain_sequence(config_file, selected_domains)
     # print("Domain sequence updated in", config_file)
-
+    # Learning rate 
+    def lambda_lr(epoch):
+    
+        m = epoch / args.max_epochs
+        if m < args.lr_milestones[0]:
+            return 1
+        elif m < args.lr_milestones[1]:
+            return 1 + ((m - args.lr_milestones[0]) / (
+                        args.lr_milestones[1] - args.lr_milestones[0])) * (
+                               args.final_lr / args.initial_lr - 1)
+        else:
+            return args.final_lr / args.initial_lr
+        
     dataset = config["dataset"]
     data_config = dataset["flair1"]
 
@@ -69,59 +82,67 @@ def main():
     model = config["model"]
     model_config = model[selected_model]
     columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']     
-    print(columns)       
-    try:
-      torch.manual_seed(seed)
-      torch.cuda.manual_seed(seed)
-      torch.autograd.set_detect_anomaly(True) 
+    print(columns)
+   
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.autograd.set_detect_anomaly(True) 
 
-      list_of_tuples = [(item, data_sequence.index(item)) for item in data_sequence]
-      print(list_of_tuples)
-      if not os.path.exists(args.sequence_path.format(seed)):
-          os.makedirs(args.sequence_path.format(seed))  
-          
-      train_imgs = []    
-      test_imgs = []
-      
-      step = 0
-      idx = step-1 if step !=0 else step
-      for step,domain in enumerate(data_sequence):
-          
-          img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
-          print(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
-          random.shuffle(img)
-          train_imgs += img[:int(len(img)*args.train_split_coef)]
-          test_imgs += img[int(len(img)*args.train_split_coef):]
-          print(img)
-          if args.strategy == 'FT':
-              domain_img = [item for item in train_imgs if  fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
-          random.shuffle(domain_img)
-          # Train&Validation dataset
-          domain_img_train = domain_img[:int(len(domain_img)*args.train_split_coef)]
-          domain_img_val = domain_img[int(len(domain_img)*args.train_split_coef):]   
-          train_dataloader = create_train_dataloader(domain_img_train, directory_path, im_size, win_size, win_stride, args.img_aug, args.num_workers, args.sup_batch_size, args.epoch_len)
-          val_dataloader = create_val_dataloader(domain_img_val, directory_path, im_size, win_size, win_stride, args.img_aug, args.num_workers, args.sup_batch_size, args.epoch_len)
-
-          # Définition de modèles
-          model_path= os.path.join(args.sequence_path.format(seed), '{}_{}_{}'.format(args.strategy,seed, step)) 
-          print(model_path)
-          segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, image_size=256, 
-                            enc_depth=12, dec_depth=6, enc_embdd=768, dec_embdd=768, n_cls=n_class)
-          # Callbacks 
-          early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
-         
-          print(segmodel)
-          optimizer = SGD(
-                segmodel.parameters(),
-                lr=args.initial_lr,     
-                momentum=0.9)
-          loss_fn = torch.nn.BCEWithLogitsLoss() 
-          scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
-          accuracy = Accuracy(num_classes=n_class).cuda()
-          model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step)       
-    except Exception as e:
+    list_of_tuples = [(item, data_sequence.index(item)) for item in data_sequence]
+    print(list_of_tuples)
+    if not os.path.exists(args.sequence_path.format(seed)):
+        os.makedirs(args.sequence_path.format(seed))  
+        
+    train_imgs = []    
+    test_imgs = []
+    
+    step = 0
+    idx = step-1 if step !=0 else step
+    for step,domain in enumerate(data_sequence):
+        print(step, domain)
+        img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
+        random.shuffle(img)
+        train_imgs += img[:int(len(img)*args.train_split_coef)]
+        test_imgs += img[int(len(img)*args.train_split_coef):]
+        
+        # if args.strategy == 'FT':
+        domain_img = [item for item in train_imgs if  fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
+        random.shuffle(domain_img)
+        print(len(domain_img))
+        # Train&Validation dataset
+        domain_img_train = domain_img[:int(len(domain_img)*args.train_split_coef)]
+        print(len(domain_img_train))
+        domain_img_val = domain_img[int(len(domain_img)*args.train_split_coef):]
+        print(len(domain_img_val))
+        train_dataloader = create_train_dataloader(domain_img_train, directory_path, im_size, 
+                                                   win_size, win_stride, args.img_aug, args.workers, 
+                                                   args.sup_batch_size, args.epoch_len)
+        print("train_dataloader",len(train_dataloader))
+        val_dataloader = create_val_dataloader(domain_img_val, directory_path, im_size, 
+                                                win_size, win_stride, args.img_aug, 
+                                                args.workers, args.sup_batch_size, args.epoch_len)
+        print("val_dataloader",len(val_dataloader))
+        # Définition de modèles
+        print('ok')
+        model_path= os.path.join(args.sequence_path.format(seed), '{}_{}_{}'.format(args.strategy,seed, step)) 
+        print(model_path)
+        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, image_size=256, 
+                          enc_depth=12, dec_depth=6, enc_embdd=768, dec_embdd=768, n_cls=n_class)
+        # Callbacks 
+        early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
+       
+        
+        optimizer = SGD(
+              segmodel.parameters(),
+              lr=args.initial_lr,     
+              momentum=0.9)
+        loss_fn = torch.nn.BCEWithLogitsLoss() 
+        scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
+        accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
+        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step)       
+    # except Exception as e:
         # Handle the exception    
-        error_message = f"An error occurred: {str(e)}"
+        # error_message = f"An error occurred: {str(e)}"
         # error_trace = traceback.format_exc()  # Get the formatted stack trace
         # logging.error("%s\n%s", error_message, error_trace)
         # # Write the error message to a text file        

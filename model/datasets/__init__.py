@@ -7,5 +7,5 @@
 # from .semcity_bdsd_ds import *
 # from .miniworld_ds import *
 # from .resisc import *
-from .flairds import *
-from .utils import *
+from model.datasets.flairds import *
+from model.datasets.utils import *

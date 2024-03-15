@@ -15,20 +15,22 @@ from dl_toolbox.callbacks import *
 
 
 def create_train_dataloader(domain_img_train, data_path, im_size, win_size, win_stride, 
-                            img_aug, num_workers, sup_batch_size, epoch_len): 
+                            img_aug, n_workers, sup_batch_size, epoch_len): 
     # Train dataset
     train_datasets = []
     for img_path in domain_img_train : 
         img_path_strings = img_path.split('/')
+        
         domain_pattern = img_path_strings[-4]
         img_pattern = img_path_strings[-1].split('_')[-1].strip('.tif')
         lbl_path = glob.glob(os.path.join(data_path, '{}/Z*_*/msk/MSK_{}.tif'.format(domain_pattern, img_pattern)))[0]
+        # print(img_path, domain_pattern,img_pattern,lbl_path)
         train_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = False,
                             tile=Window(col_off=0, row_off=0, width=im_size, height=im_size),
                             crop_size=win_size,        
                             crop_step=win_stride,
                             img_aug=img_aug))
-        
+    print("train datasets", len(train_datasets))
     trainset = ConcatDataset(train_datasets) 
     train_sampler = RandomSampler(
         data_source=trainset,
@@ -39,30 +41,33 @@ def create_train_dataloader(domain_img_train, data_path, im_size, win_size, win_
         batch_size=sup_batch_size,
         sampler=train_sampler,
         collate_fn = CustomCollate(batch_aug = img_aug),
-        num_workers=num_workers)  
+        num_workers=n_workers)  
     return train_dataloader
     
 def create_val_dataloader(domain_img_val, data_path, im_size, win_size, win_stride, 
-                            img_aug, num_workers, sup_batch_size, epoch_len): 
+                            img_aug, n_workers, sup_batch_size, epoch_len): 
     val_datasets = []
     for img_path in domain_img_val : 
+        print(img_path)
         img_path_strings = img_path.split('/')
+        print(img_path_strings)
         domain_pattern = img_path_strings[-4]
         img_pattern = img_path_strings[-1].split('_')[-1].strip('.tif')
         lbl_path = glob.glob(os.path.join(data_path, '{}/Z*_*/msk/MSK_{}.tif'.format(domain_pattern, img_pattern)))[0]
+        # print(img_path, domain_pattern,img_pattern,lbl_path)
         val_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = True,
                             tile=Window(col_off=0, row_off=0, width=im_size, height=im_size),
                             crop_size=win_size,        
                             crop_step=win_stride,
                             img_aug=img_aug))
-         
+    print("val datasets", len(val_datasets))
     valset =  ConcatDataset(val_datasets)
     val_dataloader = DataLoader(
         dataset=valset,
         shuffle=False,
         batch_size=sup_batch_size,
         collate_fn = CustomCollate(batch_aug = img_aug),
-        num_workers=num_workers)  
+        num_workers=n_workers)  
     return val_dataloader
     
 def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_stride, 
@@ -97,7 +102,7 @@ def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channel
     start_epoch = 0
     for epoch in range(start_epoch, max_epochs):
         loss_sum = 0.0
-        acc_sum  = 0.0                    
+        acc_sum  = 0.0
         time_ep = t.time()
         for i, batch in enumerate(train_dataloader):
             while True :     

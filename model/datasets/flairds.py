@@ -84,10 +84,12 @@ class FlairDs(Dataset):
             # converts label crop into contiguous tensor
             
             label = torch.from_numpy(label).float().contiguous()
-            
-            bati_label_1 = (torch.eq(label, 1))
-            bati_label_18 = (torch.eq(label, 18))
-            final_mask_bati = (bati_label_1).float()
+            mask = label >= 13
+            label[mask] = 13
+            multi_labels = label.float()
+            # bati_label_1 = (torch.eq(label, 1))
+            # bati_label_18 = (torch.eq(label, 18)
+            # final_mask_bati = (bati_label_1).float()
             # print(bati_label)
 
         if self.img_aug is not None:            
