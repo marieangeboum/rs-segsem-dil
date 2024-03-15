@@ -95,9 +95,9 @@ def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_st
 
 
 
-def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, strategy, step, ):
+def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, strategy, step, seed):
     wandb.login(key = "a60322f26edccc6c3f79accc480d56e52e02750a")
-    wandb.init(project=strategy, tags = step, name = strategy+seed)
+    wandb.init(project=strategy, tags = str(step), name = strategy+str(seed))
     columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']
     start_epoch = 0
     for epoch in range(start_epoch, max_epochs):
@@ -146,7 +146,7 @@ def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channel
                     output = model(image)  
                     loss = loss_fn(output, target)           
                     batch['preds'] = output
-                    batch['image'] = image        
+                    batch['image'] = image
                     cm = compute_conf_mat(
                         target.clone().detach().flatten().cpu(),
                         ((torch.sigmoid(output)>0.5).cpu().long().flatten()).clone().detach(), 2)

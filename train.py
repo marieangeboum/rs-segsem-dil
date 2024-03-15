@@ -139,7 +139,7 @@ def main():
         loss_fn = torch.nn.BCEWithLogitsLoss() 
         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
         accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
-        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step)       
+        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step,seed)       
     # except Exception as e:
         # Handle the exception    
         # error_message = f"An error occurred: {str(e)}"

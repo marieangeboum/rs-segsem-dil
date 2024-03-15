@@ -91,13 +91,14 @@ class FlairDs(Dataset):
             # bati_label_18 = (torch.eq(label, 18)
             # final_mask_bati = (bati_label_1).float()
             # print(bati_label)
+           
 
         if self.img_aug is not None:            
             
             #final_image, final_mask = self.img_aug(img = image_rasterio)
                  
                         
-            final_image, final_mask = self.img_aug(img=image, label=final_mask_bati)
+            final_image, final_mask = self.img_aug(img=image, label=multi_labels)
             
         else:
             final_image, final_mask = image, final_mask_bati
