@@ -1,5 +1,6 @@
 import os
 import glob
+import tqdm
 import torch
 import wandb
 import time as t
@@ -95,38 +96,34 @@ def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_st
 
 
 
-def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, strategy, step, seed):
-    wandb.login(key = "a60322f26edccc6c3f79accc480d56e52e02750a")
-    wandb.init(project=strategy, tags = str(step), name = strategy+str(seed))
+def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler):
+    
     columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']
-    start_epoch = 0
-    for epoch in range(start_epoch, max_epochs):
+    start_epoch = 0 
+    for epoch in range(max_epochs):
         loss_sum = 0.0
         acc_sum  = 0.0
         time_ep = t.time()
-        for i, batch in enumerate(train_dataloader):
-            while True :     
-                try :
-                    image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
-                    target = (batch['mask']).to(device)                    
-                    # domain_ids = [list_of_tuples[dict_of_tuples[element]][1] for element in batch['id']]
-                    optimizer.zero_grad()                         
-                    logits = model(image)
-                    loss = loss_fn(logits, target)
-                    batch['preds'] = logits
-                    batch['image'] = image 
-                    loss.backward()
-                    optimizer.step()  # updating parameters                        
-                    acc_sum += accuracy(torch.transpose(logits,0,1).reshape(2, -1).t(), 
-                                        torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
-                    loss_sum += loss.item()
-                except RuntimeError as e:
-                    # print(f"Erreur rencontrée lors de l'itération {i + 1}: {str(e)}")
-                    # Relance l'itération en continuant la boucle while
-                    continue
-                else:
-                    # Si aucune erreur ne se produit, sort de la boucle while
-                    break
+        
+        for i, batch in tqdm(enumerate(train_dataloader), total = len(train_dataloader)) :
+           
+            image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
+            target = (batch['mask']).to(device)                    
+            
+            optimizer.zero_grad()                         
+            logits = model(image)
+            loss = loss_fn(logits, target)
+
+            batch['preds'] = logits
+            batch['image'] = image 
+
+            loss.backward()
+            optimizer.step()  
+
+            acc_sum += accuracy(torch.transpose(logits,0,1).reshape(2, -1).t(), 
+                                torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
+            loss_sum += loss.item()
+      
         train_loss = {'loss': loss_sum / len(train_dataloader)}
         train_acc = {'acc': acc_sum/len(train_dataloader)}
 
@@ -137,32 +134,31 @@ def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channel
         recall = 0.0  
         scheduler.step()
         # model.eval()
-        for i, batch in enumerate(val_dataloader):
-            while True :
-                try : 
-                    image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
-                    target = (batch['mask']).to(device)  
-                    # domain_ids = [list_of_tuples[dict_of_tuples[element]][1] for element in batch['id']] 
-                    output = model(image)  
-                    loss = loss_fn(output, target)           
-                    batch['preds'] = output
-                    batch['image'] = image
-                    cm = compute_conf_mat(
-                        target.clone().detach().flatten().cpu(),
-                        ((torch.sigmoid(output)>0.5).cpu().long().flatten()).clone().detach(), 2)
-                    metrics_per_class_df, macro_average_metrics_df, micro_average_metrics_df = dl_inf.cm2metrics(cm.numpy()) 
-                    iou += metrics_per_class_df.IoU[1]
-                    precision += metrics_per_class_df.Precision[1] 
-                    recall += metrics_per_class_df.Recall[1]
-                    loss_sum += loss.item()
-                    acc_sum += accuracy(torch.transpose(output,0,1).reshape(2, -1).t(), 
-                                        torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
-                except Exception  as e:
-                    print(f"Erreur rencontrée lors de l'itération {i + 1}: {str(e)}")
-                    # Relance l'itération en continuant la boucle while
-                    continue
-                else:
-                    break
+        for i, batch in tqdm(enumerate(val_dataloader), total = len(val_dataloader)):
+           
+            image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
+            target = (batch['mask']).to(device)  
+
+            output = model(image)  
+            loss = loss_fn(output, target)  
+
+            batch['preds'] = output
+            batch['image'] = image
+            
+            iou += metrics_per_class_df.IoU
+            precision += metrics_per_class_df.Precision[1] 
+            recall += metrics_per_class_df.Recall[1]
+            
+            loss_sum += loss.item()
+            acc_sum += accuracy(torch.transpose(output,0,1).reshape(2, -1).t(), 
+                                torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
+            
+            cm = compute_conf_mat(
+                target.clone().detach().flatten().cpu(),
+                ((torch.sigmoid(output)>0.5).cpu().long().flatten()).clone().detach(), 2)
+            
+            metrics_per_class_df, macro_average_metrics_df, micro_average_metrics_df = dl_inf.cm2metrics(cm.numpy()) 
+                
         val_iou = {'iou':iou/len(val_dataloader)}
         val_precision = {'prec':precision/len(val_dataloader)}
         val_recall = {'recall':recall/len(val_dataloader)}
@@ -170,16 +166,58 @@ def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channel
         val_acc = {'acc': acc_sum/ len(val_dataloader)}
         
         early_stopping(val_loss['loss'],model)
+
         if early_stopping.early_stop:
                 print("Early Stopping")
                 break
+            
         time_ep = t.time() - time_ep
-        values = [strategy,step,epoch+1, train_loss['loss'], val_loss['loss'],train_acc['acc'],val_acc['acc'], time_ep]
-        wandb.log({"val_accuracy":val_acc['acc'], "val_loss": val_loss['loss'], 
-                   "val_iou": val_iou['iou'], "val_recall": val_recall['recall'], 
-                   "val_precision": val_precision['prec'], "train_accuracy": train_acc["acc"], 
-                   "train_loss": train_loss["loss"], "epochs" : epoch+1, "time" : time_ep})
-        table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
-        print(table)
+        
+        wandb.log({"val_accuracy":val_acc['acc'], 
+                   "val_loss": val_loss['loss'], 
+                   "val_iou": val_iou['iou'], 
+                   "val_recall": val_recall['recall'], 
+                   "val_precision": val_precision['prec'],
+                   "train_accuracy": train_acc["acc"], 
+                   "train_loss": train_loss["loss"], 
+                   "epochs" : epoch+1, 
+                   "time" : time_ep})
 
-    return model, train_values, val_values
+    return model
+
+def save_table(table_name):
+  table = wandb.Table(columns=['Original Image', 'Original Mask', 'Predicted Mask'], allow_mixed_types = True)
+  for bx, data in tqdm(enumerate(val_dl), total = len(val_dl)):
+    im, mask = data
+    _mask = model(im)
+    _, _mask = torch.max(_mask, dim=1)
+
+    plt.figure(figsize=(10,10))
+    plt.axis("off")
+    plt.imshow(im[0].permute(1,2,0).detach().cpu()[:,:,0])
+    plt.savefig("original_image.jpg")
+    plt.close()
+
+    plt.figure(figsize=(10,10))
+    plt.axis("off")
+    plt.imshow(mask.permute(1,2,0).detach().cpu()[:,:,0])
+    plt.savefig("original_mask.jpg")
+    plt.close()
+
+    plt.figure(figsize=(10,10))
+    plt.axis("off")
+    plt.imshow(_mask.permute(1,2,0).detach().cpu()[:,:,0])
+    plt.savefig("predicted_mask.jpg")
+    plt.close()
+
+    table.add_data(
+        wandb.Image(cv2.cvtColor(cv2.imread("original_image.jpg"), cv2.COLOR_BGR2RGB)),
+        wandb.Image(cv2.cvtColor(cv2.imread("original_mask.jpg"), cv2.COLOR_BGR2RGB)),
+        wandb.Image(cv2.cvtColor(cv2.imread("predicted_mask.jpg"), cv2.COLOR_BGR2RGB))
+    )
+
+  wandb.log({table_name: table})
+
+
+
+
