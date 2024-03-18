@@ -1,0 +1,32 @@
+diff --git a/model/datasets/__pycache__/utils.cpython-38.pyc b/model/datasets/__pycache__/utils.cpython-38.pyc
+index c5d9095..2a2aee6 100644
+Binary files a/model/datasets/__pycache__/utils.cpython-38.pyc and b/model/datasets/__pycache__/utils.cpython-38.pyc differ
+diff --git a/model/datasets/utils.py b/model/datasets/utils.py
+index dc1fa55..ed8840c 100644
+--- a/model/datasets/utils.py
++++ b/model/datasets/utils.py
+@@ -95,9 +95,9 @@ def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_st
+ 
+ 
+ 
+-def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, strategy, step, ):
++def train_function(model, max_epochs, train_dataloader,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, strategy, step, seed):
+     wandb.login(key = "a60322f26edccc6c3f79accc480d56e52e02750a")
+-    wandb.init(project=strategy, tags = step, name = strategy+seed)
++    wandb.init(project=strategy, tags = str(step), name = strategy+str(seed))
+     columns = ['run','step','ep', 'train_loss', 'train_acc','val_acc', 'val_loss','time', 'method']
+     start_epoch = 0
+     for epoch in range(start_epoch, max_epochs):
+diff --git a/train.py b/train.py
+index b656d2b..8ea6a62 100644
+--- a/train.py
++++ b/train.py
+@@ -139,7 +139,7 @@ def main():
+         loss_fn = torch.nn.BCEWithLogitsLoss() 
+         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
+         accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
+-        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step)       
++        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step,seed)       
+     # except Exception as e:
+         # Handle the exception    
+         # error_message = f"An error occurred: {str(e)}"
