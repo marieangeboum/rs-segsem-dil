@@ -1,0 +1,28 @@
+Traceback (most recent call last):
+  File "train.py", line 153, in <module>
+    main()
+  File "train.py", line 142, in main
+    model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step,seed)
+  File "/d/maboum/rs-segsem-dil/model/datasets/utils.py", line 107, in train_function
+    for i, batch in enumerate(train_dataloader):
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 631, in __next__
+    data = self._next_data()
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1346, in _next_data
+    return self._process_data(data)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/dataloader.py", line 1372, in _process_data
+    data.reraise()
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/_utils.py", line 722, in reraise
+    raise exception
+NameError: Caught NameError in DataLoader worker process 0.
+Original Traceback (most recent call last):
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/_utils/worker.py", line 308, in _worker_loop
+    data = fetcher.fetch(index)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/_utils/fetch.py", line 51, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/_utils/fetch.py", line 51, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/utils/data/dataset.py", line 335, in __getitem__
+    return self.datasets[dataset_idx][sample_idx]
+  File "/d/maboum/rs-segsem-dil/model/datasets/flairds.py", line 100, in __getitem__
+    final_image, final_mask = self.img_aug(img=image, label=final_mask_bati)
+NameError: name 'final_mask_bati' is not defined

@@ -1,0 +1,45 @@
+Traceback (most recent call last):
+  File "/d/maboum/rs-segsem-dil/model/datasets/utils.py", line 114, in train_function
+    logits = model(image)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/d/maboum/rs-segsem-dil/model/segmenter.py", line 30, in forward
+    x = self.encoder(img)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/container.py", line 217, in forward
+    input = module(input)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/d/maboum/rs-segsem-dil/model/vit.py", line 35, in forward
+    x = self.projection(x)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/container.py", line 217, in forward
+    input = module(input)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1511, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/module.py", line 1520, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/conv.py", line 460, in forward
+    return self._conv_forward(input, self.weight, self.bias)
+  File "/d/maboum/dil_seg/lib/python3.8/site-packages/torch/nn/modules/conv.py", line 456, in _conv_forward
+    return F.conv2d(input, weight, bias, self.stride,
+RuntimeError: Input type (torch.cuda.FloatTensor) and weight type (torch.FloatTensor) should be the same
+During handling of the above exception, another exception occurred:
+Traceback (most recent call last):
+  File "train.py", line 153, in <module>
+    main()
+  File "train.py", line 142, in main
+    model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler, args.strategy, step,seed)
+  File "/d/maboum/rs-segsem-dil/model/datasets/utils.py", line 114, in train_function
+    logits = model(image)
+KeyboardInterrupt
