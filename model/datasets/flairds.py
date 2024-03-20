@@ -87,6 +87,7 @@ class FlairDs(Dataset):
             mask = label >= 13
             label[mask] = 13
             multi_labels = label.float()
+            multi_labels -= 1
             # bati_label_1 = (torch.eq(label, 1))
             # bati_label_18 = (torch.eq(label, 18)
             # final_mask_bati = (bati_label_1).float()

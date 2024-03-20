@@ -5,7 +5,6 @@ import tabulate
 import fnmatch
 import random
 
-
 from rasterio.windows import Window
 from argparse import ArgumentParser
 
@@ -39,7 +38,7 @@ def main():
     parser.add_argument('--strategy', type = str, default = 'FT')
     parser.add_argument('--buffer_size', type = float, default = 0.2)
     args = parser.parse_args()
-    config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
+    config_file ="/run/user/108646/gvfs/sftp:host=flexo/d/maboum/rs-segsem-dil/model/configs/config.yml"
     config = load_config_yaml(file_path =  config_file)
     
     # Learning rate 
@@ -76,7 +75,7 @@ def main():
 
     wandb.login(key = "a60322f26edccc6c3f79accc480d56e52e02750a")
     wandb.init(project="domain-incremental-semantic-segmentation-flair1")
-    wandb.init(tags = str(step), name = str(step)+'_'+strategy+'_'+str(seed), config = data_config)   
+   
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -90,7 +89,7 @@ def main():
     test_imgs = []
     
     for step,domain in enumerate(data_sequence[:1]):
-        
+        wandb.init(tags = str(step), name = str(step)+'_'+args.strategy+'_'+str(seed), config = data_config)   
         img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
         random.shuffle(img)
         train_imgs += img[:int(len(img)*args.train_split_coef)]
@@ -101,6 +100,7 @@ def main():
                     fnmatch.fnmatch(item, os.path.join(directory_path, 
                     '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
         random.shuffle(domain_img)
+        
         # Train&Validation dataset
         domain_img_train = domain_img[:int(len(domain_img)*args.train_split_coef)]
         domain_img_val = domain_img[int(len(domain_img)*args.train_split_coef):]
@@ -120,18 +120,39 @@ def main():
         optimizer = SGD(segmodel.parameters(),
                         lr=args.initial_lr,
                         momentum=0.9)
-        loss_fn = torch.nn.CrossEntropyLoss() 
+        loss_fn = torch.nn.CrossEntropyLoss().cuda() 
         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
         accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
-        model = train_function(segmodel, epochs, train_dataloader, val_dataloader, n_channels, device, optimizer, loss_fn, accuracy, scheduler)       
+        # accuracy = Accuracy(num_classes=n_class).cuda()
+        for epoch in range(args.max_epochs):
+
+            time_ep = t.time() 
+            segmodel,train_loss, train_acc = train_function(segmodel,train_dataloader, n_channels, 
+                                                          device,optimizer, loss_fn, accuracy ,scheduler)
+            print(train_loss, train_acc)
+            segmodel,val_acc, val_loss, per_class, macro_average, micro_average = validation_function(segmodel,val_dataloader, 
+                                                                                        n_channels, device,optimizer, 
+                                                                                        loss_fn, accuracy ,scheduler)
+            early_stopping(val_loss['loss'],segmodel)
+            wandb.log({'Metrics Class': wandb.Table(dataframe= per_class)})
+            wandb.log({'Macro Average': wandb.Table(dataframe= macro_average)})
+            wandb.log({'Micro Average': wandb.Table(dataframe= micro_average)})
+            wandb.log({"val_accuracy":val_acc['acc'], 
+                       "val_loss": val_loss['loss'], 
+                       "train_accuracy": train_acc["acc"], 
+                       "train_loss": train_loss["loss"], 
+                       "epochs" : epoch+1, 
+                       "time" : time_ep})
+            if early_stopping.early_stop :
+                break
+            time_ep = t.time() - time_ep
 
 
 if __name__ == "__main__":
     
     main()   
 
-               
-        
+
  # if step !=0 and args.strategy == 'ER':
  #     coef_replay = args.buffer_size/5
  #     past_domain_img = []
