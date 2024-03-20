@@ -1,7 +1,7 @@
 import torch
 from einops import rearrange
 import torch.nn as nn
-from .vit import TransformerEncoder
+from .vit import *
 
 
 class DecoderLinear(nn.Module):

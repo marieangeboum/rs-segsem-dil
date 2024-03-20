@@ -39,7 +39,7 @@ def main():
     parser.add_argument('--buffer_size', type = float, default = 0.2)
     args = parser.parse_args()
     config_file ="/run/user/108646/gvfs/sftp:host=flexo/d/maboum/rs-segsem-dil/model/configs/config.yml"
-    config = load_config_yaml(file_path =  config_file)
+    config = load_config_yaml(file_path = config_file)
     
     # Learning rate 
     def lambda_lr(epoch):
@@ -113,8 +113,9 @@ def main():
                                                 args.workers, args.sup_batch_size, args.epoch_len)
         # Définition de modèles
         model_path = os.path.join(args.sequence_path.format(seed), '{}_{}_{}'.format(args.strategy,seed, step)) 
-        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, image_size=256, 
-                          enc_depth=12, dec_depth=6, enc_embdd=768, dec_embdd=768, n_cls=n_class).to(device)
+        # segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, image_size=256, 
+        #                   enc_depth=12, dec_depth=6, enc_embdd=768, dec_embdd=768, n_cls=n_class).to(device)
+        segmodel = Segmenter(scale=0.05, patch_size= 384, variant=selected_model , enc_embdd = model_config["d_model"], n_cls = n_class)
         # Callbacks 
         early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
         optimizer = SGD(segmodel.parameters(),

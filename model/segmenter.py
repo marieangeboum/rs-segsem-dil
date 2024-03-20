@@ -1,28 +1,39 @@
-
-from model.vit import ViT
-from model.decoder import *
 import torch.nn as nn
 import torch.nn.functional as F
 import seaborn as sns
 import torch
+import copy
+import timm
+from model.vit import *
+from model.vit import _create_vision_transformer
+from model.decoder import *
+
+from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, IMAGENET_INCEPTION_MEAN, IMAGENET_INCEPTION_STD
+from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, named_apply, adapt_input_conv, checkpoint_seq
+from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
+from timm.models.registry import register_model
+
+
 
 class Segmenter(nn.Module):
     def __init__(self,
-                 in_channels,
+                 # in_channels,
                  scale,
                  patch_size,
-                 image_size,
-                 enc_depth,
-                 dec_depth,
+                 # image_size,
+                 # enc_depth,
+                 # dec_depth,
+                 variant,
                  enc_embdd,
-                 dec_embdd,
+                 # dec_embdd,
                  n_cls):
         super().__init__()
-        self.encoder = ViT(in_channels,
-                           patch_size,
-                           enc_embdd,
-                           image_size,
-                           enc_depth)
+        # self.encoder = ViT(in_channels,
+        #                    patch_size,
+        #                    enc_embdd,
+        #                    image_size,
+        #                    enc_depth)
+        self.encoder = _create_vision_transformer(variant, pretrained=True)
         self.decoder = DecoderLinear(n_cls, patch_size, embedd_dim=enc_embdd)
 
     def forward(self, img):

@@ -1,6 +1,6 @@
 import math
-import timm
-import logging
+
+
 from functools import partial
 from collections import OrderedDict
 
@@ -14,24 +14,19 @@ from timm.models.helpers import build_model_with_cfg, resolve_pretrained_cfg, na
 from timm.models.layers import PatchEmbed, Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
 
-
-from einops.layers.torch import Rearrange, Reduce
-from torchsummary import summary
-import torch.nn.functional as F
-from einops import repeat
 from torchvision.transforms.functional import to_pil_image
 import numpy as np
-import torch.nn as nn
+
 from einops import rearrange
 from torchvision.utils import make_grid
-from torch.utils.data import DataLoader
-import torchvision.transforms as tt
+
+
 from PIL import Image
 import matplotlib.pyplot as plt
-from torchvision.datasets import ImageFolder
-import os
-import torchvision
-import torch
+
+
+
+
 
 
 
@@ -644,9 +639,7 @@ def _create_vision_transformer(variant, pretrained=False, **kwargs):
     num_classes = kwargs.get('num_classes', default_num_classes)
     repr_size = kwargs.pop('representation_size', None)
     if repr_size is not None and num_classes != default_num_classes:
-        # Remove representation layer if fine-tuning. This may not always be the desired action,
-        # but I feel better than doing nothing by default for fine-tuning. Perhaps a better interface?
-        
+       
         repr_size = None
 
     model = build_model_with_cfg(

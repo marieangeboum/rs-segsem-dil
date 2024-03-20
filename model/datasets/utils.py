@@ -95,13 +95,12 @@ def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_st
         num_workers=num_workers)
     return test_dataloader
 
-
 def train_function(model,train_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler):
     loss_sum = 0.0
     acc_sum = 0.0
     time_ep = t.time()
     for i, batch in tqdm(enumerate(train_dataloader), total = len(train_dataloader)) :
-       
+
         image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
         target = (batch['mask']).to(device)
         torch.unique(target, dim=1)

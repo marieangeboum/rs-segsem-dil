@@ -30,22 +30,22 @@ dataset:
     im_size: 512
     learning_rate: 0.01
     seq_length: 10
-    window_size: 256
-    window_stride: 256
+    window_size: 224
+    window_stride: 224
     classnames : {
-        1 : "building", 
-        2 : "pervious surface",
-        3 : "impervious surface",
-        4 : "bare soil",
-        5 : "water",
-        6 : "coniferous", 
-        7 : "deciduous",
-        8 : "brushwood", 
-        9 : "vineyard", 
-        10 : "herbaceous vegetation",
-        11 : "agricultural land",
-        12 : "plowed land",
-        13 : "other"
+        0 : "building", 
+        1 : "pervious surface",
+        2 : "impervious surface",
+        3 : "bare soil",
+        4 : "water",
+        5 : "coniferous", 
+        6 : "deciduous",
+        7 : "brushwood", 
+        8 : "vineyard", 
+        9 : "herbaceous vegetation",
+        10 : "agricultural land",
+        11 : "plowed land",
+        12 : "other"
         }
 decoder:
   deeplab_dec:
