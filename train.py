@@ -105,19 +105,23 @@ def main():
         # Train&Validation dataset
         domain_img_train = domain_img[:int(len(domain_img)*args.train_split_coef)]
         domain_img_val = domain_img[int(len(domain_img)*args.train_split_coef):]
+        
         train_dataloader = create_train_dataloader(domain_img_train, directory_path, im_size, 
                                                    win_size, win_stride, args.img_aug, args.workers, 
                                                    args.sup_batch_size, args.epoch_len)
-        print("train_dataloader",len(train_dataloader))
-        val_dataloader = create_val_dataloader(domain_img_val, directory_path, im_size, 
-                                                win_size, win_stride, args.img_aug, 
-                                                args.workers, args.sup_batch_size, args.epoch_len)
+        
+        val_dataloader = create_val_dataloader(domain_img_val, directory_path, 
+                                               im_size, win_size, win_stride, 
+                                               args.img_aug, args.workers, 
+                                               args.sup_batch_size, args.epoch_len)
         # Définition de modèles
-        model_path = os.path.join(args.sequence_path.format(seed), '{}_{}_{}'.format(args.strategy,seed, step)) 
-        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, image_size=256, 
-                          enc_depth=model_config["n_layers"], enc_embdd=model_config["d_model"], n_cls=n_class).to(device)
-        # segmodel = Segmenter(scale=0.05, patch_size= 16,enc_depth = model_config["n_layers"], 
-                             # variant=selected_model,enc_embdd = model_config["d_model"], n_cls = n_class).to(device)
+        model_path = os.path.join(args.sequence_path.format(seed), 
+                                  '{}_{}_{}'.format(args.strategy,seed, step)) 
+
+        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, 
+                             image_size=256, enc_depth=model_config["n_layers"], 
+                             enc_embdd=model_config["d_model"], n_cls=n_class).to(device)
+       
         # Callbacks 
         early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
         optimizer = SGD(segmodel.parameters(),
