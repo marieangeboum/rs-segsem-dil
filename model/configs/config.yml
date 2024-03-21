@@ -30,8 +30,8 @@ dataset:
     im_size: 512
     learning_rate: 0.01
     seq_length: 10
-    window_size: 224
-    window_stride: 224
+    window_size: 256
+    window_stride: 256
     classnames : {
         0 : "building", 
         1 : "pervious surface",

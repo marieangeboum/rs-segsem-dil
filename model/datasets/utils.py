@@ -146,18 +146,19 @@ def validation_function(model,val_dataloader, n_channels, device,optimizer, loss
             targets_one_hot.clone().detach().flatten().cpu(),
             ((torch.sigmoid(output)>0.5).cpu().long().flatten()).clone().detach(), 2)
         metrics_per_class, macro_average_metrics, micro_average_metrics = dl_inf.cm2metrics(cm.numpy()) 
-        
-        # wandb.log(
-        #       {"my_image_key" : wandb.Image(image, masks={
-        #         "predictions" : {
-        #             "mask_data" : batch['preds'],
-        #             "class_labels" : class_labels
-        #         },
-        #         "ground_truth" : {
-        #             "mask_data" : target,
-        #             "class_labels" : class_labels
-        #         }
-        #     })})
+        # if i % eval_fred == 0 :
+            
+        #     wandb.log(
+        #           {"my_image_key" : wandb.Image(image, masks={
+        #             "predictions" : {
+        #                 "mask_data" : batch['preds'],
+        #                 "class_labels" : class_labels
+        #             },
+        #             "ground_truth" : {
+        #                 "mask_data" : target,
+        #                 "class_labels" : class_labels
+        #             }
+        #         })})
 
     val_loss = {'loss': loss_sum / len(val_dataloader)} 
     val_acc = {'acc': acc_sum/ len(val_dataloader)}
