@@ -121,7 +121,7 @@ def train_function(model,train_dataloader, n_channels, device,optimizer, loss_fn
     train_acc = {'acc': acc_sum/len(train_dataloader)}
     return model,train_loss, train_acc
     
-def validation_function(model,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler):
+def validation_function(model,val_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, class_labels, eval_freq):
 
     loss_sum = 0.0
     acc_sum = 0.0
@@ -140,63 +140,69 @@ def validation_function(model,val_dataloader, n_channels, device,optimizer, loss
         loss_sum += loss.item()
         # acc_sum += accuracy(torch.transpose(output,0,1).reshape(2, -1).t(), 
         #                     torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
-        acc_sum += accuracy(output, target)
-        targets_one_hot = torch.nn.functional.one_hot(target.long(),13)
-        cm = compute_conf_mat(
-            targets_one_hot.clone().detach().flatten().cpu(),
-            ((torch.sigmoid(output)>0.5).cpu().long().flatten()).clone().detach(), 2)
-        metrics_per_class, macro_average_metrics, micro_average_metrics = dl_inf.cm2metrics(cm.numpy()) 
-        # if i % eval_fred == 0 :
-            
-        #     wandb.log(
-        #           {"my_image_key" : wandb.Image(image, masks={
-        #             "predictions" : {
-        #                 "mask_data" : batch['preds'],
-        #                 "class_labels" : class_labels
-        #             },
-        #             "ground_truth" : {
-        #                 "mask_data" : target,
-        #                 "class_labels" : class_labels
-        #             }
-        #         })})
-
+        acc_sum += accuracy(F.softmax(output, dim=1), target)
+        confusion_mat = calculate_confusion_matrix(output, target, num_classes = 13)
+        metrics_df = calculate_performance_metrics(confusion_mat, class_labels)
+        wandb_image_list =[]
+        if i % eval_freq == 0 :
+            wandb_image_list.append(
+                wandb.Image(image[0,:,:,:].cpu().numpy(), 
+                masks={"prediction" :
+                {"mask_data" : output[0,:,:,:].argmax(dim=1).cpu().numpy(), "class_labels" : class_labels},
+                "ground truth" : 
+                {"mask_data" : target[0,:,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
+                caption= "{}_batch_{}".format(i, batch['id'])))
+                
     val_loss = {'loss': loss_sum / len(val_dataloader)} 
     val_acc = {'acc': acc_sum/ len(val_dataloader)}
-    return model,val_acc, val_loss, per_class, macro_average, micro_average
-
-def save_table(table_name):
-  table = wandb.Table(columns=['Original Image', 'Original Mask', 'Predicted Mask'], allow_mixed_types = True)
-  for bx, data in tqdm(enumerate(val_dl), total = len(val_dl)):
-    im, mask = data
-    _mask = model(im)
-    _, _mask = torch.max(_mask, dim=1)
-
-    plt.figure(figsize=(10,10))
-    plt.axis("off")
-    plt.imshow(im[0].permute(1,2,0).detach().cpu()[:,:,0])
-    plt.savefig("original_image.jpg")
-    plt.close()
-
-    plt.figure(figsize=(10,10))
-    plt.axis("off")
-    plt.imshow(mask.permute(1,2,0).detach().cpu()[:,:,0])
-    plt.savefig("original_mask.jpg")
-    plt.close()
-
-    plt.figure(figsize=(10,10))
-    plt.axis("off")
-    plt.imshow(_mask.permute(1,2,0).detach().cpu()[:,:,0])
-    plt.savefig("predicted_mask.jpg")
-    plt.close()
-
-    table.add_data(
-        wandb.Image(cv2.cvtColor(cv2.imread("original_image.jpg"), cv2.COLOR_BGR2RGB)),
-        wandb.Image(cv2.cvtColor(cv2.imread("original_mask.jpg"), cv2.COLOR_BGR2RGB)),
-        wandb.Image(cv2.cvtColor(cv2.imread("predicted_mask.jpg"), cv2.COLOR_BGR2RGB))
-    )
-
-  wandb.log({table_name: table})
+    return model,val_acc, val_loss, metrics_df, confusion_mat
 
 
 
+def calculate_confusion_matrix(predictions, targets, num_classes):
+    # Convertir les tensors PyTorch en tableaux NumPy
+    predictions_np = predictions.argmax(dim=1).cpu().numpy()
+    targets_np = targets.cpu().numpy()
+
+    # Initialiser la matrice de confusion
+    confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int64)
+
+    # Parcourir chaque image dans le batch
+    for i in range(len(predictions_np)):
+        # Comparer chaque pixel prédit avec le pixel de vérité terrain correspondant
+        for true_class in range(num_classes):
+            for predicted_class in range(num_classes):
+                # Calculer le nombre de pixels prédits comme la classe 'predicted_class'
+                # qui sont en fait de la classe 'true_class'
+                confusion_matrix[true_class, predicted_class] += np.sum(
+                    (predictions_np[i] == predicted_class) & (targets_np[i] == true_class)
+                )
+
+    return confusion_matrix
+
+def calculate_performance_metrics(confusion_mat, classnames):
+    num_classes = confusion_mat.shape[0]
+    metrics = {'recall': [], 'precision': [], 'iou': [], 'f1': []}
+
+    for i in range(num_classes):
+        TP = confusion_mat[i, i]
+        FN = np.sum(confusion_mat[i, :]) - TP
+        FP = np.sum(confusion_mat[:, i]) - TP
+
+        recall = TP / (TP + FN) if TP + FN != 0 else 0
+        precision = TP / (TP + FP) if TP + FP != 0 else 0
+        iou = TP / (TP + FP + FN) if TP + FP + FN != 0 else 0
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall != 0 else 0
+
+        class_name = classnames[i]
+        metrics['recall'].append((class_name, recall))
+        metrics['precision'].append((class_name, precision))
+        metrics['iou'].append((class_name, iou))
+        metrics['f1'].append((class_name, f1))
+        
+        metrics_df = pd.DataFrame.from_dict({k: dict(v) for k, v in performance_metrics.items()})
+        metrics_df.index.name = 'Class' 
+        
+
+    return metrics_df
 

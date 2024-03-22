@@ -1,3 +1,4 @@
+checkpoints: /d/maboum/rs-segsem-dil/model/checkpoints/
 dataset:
   cityscapes:
     batch_size: 8

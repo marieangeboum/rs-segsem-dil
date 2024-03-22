@@ -115,7 +115,6 @@ class TransformerEncoderBlock(nn.Sequential):
             )),
         )
 
-
 class TransformerEncoder(nn.Sequential):
     def __init__(self, depth: int = 6, **kwargs):
         super().__init__(*[TransformerEncoderBlock(**kwargs)

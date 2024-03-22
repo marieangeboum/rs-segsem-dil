@@ -69,7 +69,8 @@ def main():
     win_stride = data_config["window_stride"]
     n_channels = data_config['n_channels']
     n_class = data_config["n_cls"]
-
+    class_names = data_config["classnames"]
+    eval_freq = data_config["eval_freq"]
     selected_model = "vit_base_patch16_384"
     model = config["model"]
     model_config = model[selected_model]
@@ -89,7 +90,19 @@ def main():
     train_imgs = []    
     test_imgs = []
     
-    for step,domain in enumerate(data_sequence[:1]):
+    for step,domain in enumerate(data_sequence):
+        # Définition de modèles
+        model_path = os.path.join(config["checkpoints"],args.sequence_path.format(seed), 
+                                  '{}_{}_{}'.format(args.strategy,seed, step)) 
+
+        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, 
+                             image_size=256, enc_depth=model_config["n_layers"], 
+                             enc_embdd=model_config["d_model"], n_cls=n_class).to(device)
+        if step > 0 : 
+            pretrained_segmodel = torch.load(os.path.join(config["checkpoints"],args.sequence_path.format(seed), 
+                                      '{}_{}_{}'.format(args.strategy,seed, step-1)))
+            segmodel.load_state_dict(pretrained_segmodel)
+
         wandb.init(tags = str(step), name = str(step)+'_'+args.strategy+'_'+str(seed), config = data_config)   
         img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
         random.shuffle(img)
@@ -114,13 +127,7 @@ def main():
                                                im_size, win_size, win_stride, 
                                                args.img_aug, args.workers, 
                                                args.sup_batch_size, args.epoch_len)
-        # Définition de modèles
-        model_path = os.path.join(args.sequence_path.format(seed), 
-                                  '{}_{}_{}'.format(args.strategy,seed, step)) 
-
-        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, 
-                             image_size=256, enc_depth=model_config["n_layers"], 
-                             enc_embdd=model_config["d_model"], n_cls=n_class).to(device)
+       
        
         # Callbacks 
         early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
@@ -133,30 +140,29 @@ def main():
         accuracy = Accuracy(num_classes=n_class).cuda()
         for epoch in range(args.max_epochs):
 
-            time_ep = t.time() 
+            time_ep = time.time() 
             segmodel,train_loss, train_acc = train_function(segmodel,train_dataloader, n_channels, 
                                                           device,optimizer, loss_fn, accuracy ,scheduler)
             print(train_loss, train_acc)
-            segmodel,val_acc, val_loss, per_class, macro_average, micro_average = validation_function(segmodel,val_dataloader, 
+            segmodel,val_acc, val_loss, metrics_df, confusion_mat = validation_function(segmodel,val_dataloader, 
                                                                                         n_channels, device,optimizer, 
-                                                                                        loss_fn, accuracy ,scheduler)
+                                                                                        loss_fn, accuracy ,scheduler, 
+                                                                                        class_names, eval_freq)
             early_stopping(val_loss['loss'],segmodel)
-            wandb.log({'Metrics Class': wandb.Table(dataframe= per_class)})
-            wandb.log({'Macro Average': wandb.Table(dataframe= macro_average)})
-            wandb.log({'Micro Average': wandb.Table(dataframe= micro_average)})
+            wandb.log({'Metrics Class': wandb.Table(dataframe= metrics_df)})
+            if early_stopping.early_stop :
+                break
             wandb.log({"val_accuracy":val_acc['acc'], 
                        "val_loss": val_loss['loss'], 
                        "train_accuracy": train_acc["acc"], 
                        "train_loss": train_loss["loss"], 
                        "epochs" : epoch+1, 
                        "time" : time_ep})
-            if early_stopping.early_stop :
-                break
-            time_ep = t.time() - time_ep
-
+            
+            time_ep = time.time() - time_ep
+        wandb.finish()
 
 if __name__ == "__main__":
-    
     main()   
 
 
