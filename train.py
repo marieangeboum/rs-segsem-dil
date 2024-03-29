@@ -11,6 +11,7 @@ from argparse import ArgumentParser
 import torch
 import torch.nn as nn
 import wandb
+
 from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import LambdaLR
 from model.segmenter import Segmenter
@@ -38,7 +39,7 @@ def main():
     parser.add_argument('--strategy', type = str, default = 'FT')
     parser.add_argument('--buffer_size', type = float, default = 0.2)
     args = parser.parse_args()
-    config_file ="/run/user/108646/gvfs/sftp:host=flexo/d/maboum/rs-segsem-dil/model/configs/config.yml"
+    config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
     # config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
     config = load_config_yaml(file_path = config_file)
     
@@ -71,13 +72,18 @@ def main():
     n_class = data_config["n_cls"]
     class_names = data_config["classnames"]
     eval_freq = data_config["eval_freq"]
-    selected_model = "vit_base_patch16_384"
+    
+    selected_model = "vit_base_patch16_224"
     model = config["model"]
     model_config = model[selected_model]
-
-    wandb.login(key = "a60322f26edccc6c3f79accc480d56e52e02750a")
+    im_size = model_config["image_size"]
+    patch_size = model_config["patch_size"]
+    d_model = model_config["d_model"]
+    n_heads = model_config["n_heads"]
+    n_layers = model_config["n_layers"]
+    
+    wandb.login(key = "ad58a41a99168fb44b86a70954b3728fe7818df2")
     wandb.init(project="domain-incremental-semantic-segmentation-flair1")
-   
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
@@ -85,19 +91,21 @@ def main():
 
     list_of_tuples = [(item, data_sequence.index(item)) for item in data_sequence]
     if not os.path.exists(args.sequence_path.format(seed)):
-        os.makedirs(args.sequence_path.format(seed))  
+        os.makedirs(os.path.join(config["checkpoints"],
+                                 args.sequence_path.format(seed)))  
         
     train_imgs = []    
     test_imgs = []
     
+    segmodel = Segmenter((im_size,im_size), n_layers, d_model, 4*d_model, 
+                         n_heads, n_class, patch_size, selected_model).to(device)
+    segmodel.load_pretrained_weights()
+    test_dataloaders = []
     for step,domain in enumerate(data_sequence):
         # Définition de modèles
         model_path = os.path.join(config["checkpoints"],args.sequence_path.format(seed), 
                                   '{}_{}_{}'.format(args.strategy,seed, step)) 
-
-        segmodel = Segmenter(in_channels= n_channels, scale=0.05, patch_size=16, 
-                             image_size=256, enc_depth=model_config["n_layers"], 
-                             enc_embdd=model_config["d_model"], n_cls=n_class).to(device)
+        
         if step > 0 : 
             pretrained_segmodel = torch.load(os.path.join(config["checkpoints"],args.sequence_path.format(seed), 
                                       '{}_{}_{}'.format(args.strategy,seed, step-1)))
@@ -114,13 +122,16 @@ def main():
                     fnmatch.fnmatch(item, os.path.join(directory_path, 
                     '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
         random.shuffle(domain_img)
-        
+        domain_img_test = [item for item in test_imgs if  
+                    fnmatch.fnmatch(item, os.path.join(directory_path, 
+                    '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
         # Train&Validation dataset
         domain_img_train = domain_img[:int(len(domain_img)*args.train_split_coef)]
         domain_img_val = domain_img[int(len(domain_img)*args.train_split_coef):]
         
-        train_dataloader = create_train_dataloader(domain_img_train, directory_path, im_size, 
-                                                   win_size, win_stride, args.img_aug, args.workers, 
+        train_dataloader = create_train_dataloader(domain_img_train, directory_path, 
+                                                   im_size, win_size, win_stride, 
+                                                   args.img_aug, args.workers, 
                                                    args.sup_batch_size, args.epoch_len)
         
         val_dataloader = create_val_dataloader(domain_img_val, directory_path, 
@@ -128,7 +139,10 @@ def main():
                                                args.img_aug, args.workers, 
                                                args.sup_batch_size, args.epoch_len)
        
-       
+        test_dataloaders.append(create_test_dataloader(domain_img_test, directory_path, 
+                                                 im_size, win_size, win_stride, 
+                                                 args.img_aug, args.workers, 
+                                                 args.sup_batch_size, args.epoch_len))
         # Callbacks 
         early_stopping = EarlyStopping(patience=20, verbose=True,  delta=0.001,path=model_path)
         optimizer = SGD(segmodel.parameters(),
@@ -136,15 +150,15 @@ def main():
                         momentum=0.9)
         loss_fn = torch.nn.CrossEntropyLoss().cuda() 
         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
-        # accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
-        accuracy = Accuracy(num_classes=n_class).cuda()
+        accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
+        # accuracy = Accuracy(num_classes=n_class).cuda()
         for epoch in range(args.max_epochs):
 
             time_ep = time.time() 
             segmodel,train_loss, train_acc = train_function(segmodel,train_dataloader, n_channels, 
                                                           device,optimizer, loss_fn, accuracy ,scheduler)
             print(train_loss, train_acc)
-            segmodel,val_acc, val_loss, metrics_df, confusion_mat = validation_function(segmodel,val_dataloader, 
+            segmodel,val_acc, val_loss, metrics_df, confusion_mat, wandb_list = validation_function(segmodel,val_dataloader, 
                                                                                         n_channels, device,optimizer, 
                                                                                         loss_fn, accuracy ,scheduler, 
                                                                                         class_names, eval_freq)
@@ -158,8 +172,20 @@ def main():
                        "train_loss": train_loss["loss"], 
                        "epochs" : epoch+1, 
                        "time" : time_ep})
-            
+            wandb.log({"Predictions": [image for image in wandb_list]})
             time_ep = time.time() - time_ep
+            
+        best_model = Segmenter((im_size,im_size), n_layers, d_model, 4*d_model, 
+                             n_heads, n_class, patch_size, selected_model).to(device)
+        best_model.load_state_dict(torch.load(model_path))
+        for test_step, test_domain in enumerate(data_sequence[:step+1]) : 
+            test_acc, metrics_df, confusion_mat = test_function(best_model, 
+                                                                test_dataloaders[test_step], 
+                                                                n_channels, device, optimizer, 
+                                                                loss_fn, accuracy, scheduler, 
+                                                                class_labels, eval_freq)
+            wandb.log({"test_accuracy": test_acc["acc"]})
+            wandb.log({f'Etape {step} : {test_domain}': wandb.Table(dataframe= metrics_df)})
         wandb.finish()
 
 if __name__ == "__main__":
