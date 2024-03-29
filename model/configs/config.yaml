@@ -1,4 +1,5 @@
 checkpoints: rs-segsem-dil/model/checkpoints/
+finetuning : lora
 dataset:
   cityscapes:
     batch_size: 4

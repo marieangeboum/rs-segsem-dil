@@ -12,6 +12,7 @@ from model.decoder import *
 
 from model.vit import *
 from model.utils import padding, unpadding
+from model.lora.lora import LoRA_ViT
 from timm.models.layers import trunc_normal_
 
 
@@ -98,7 +99,9 @@ class Segmenter(nn.Module):
         except Exception as e:
             # Handle any exceptions that occur during loading
             print("An error occurred while loading the pretrained model:", e)
-        
+    def lora_finetuning(self):
+        try :
+            lora_vit = LoRA_ViT(vit_model = self.encoder, r= 4, alpha = 4, num_classes = n_cls)    
 
     def get_attention_map_enc(self, im, layer_id):
         return self.encoder.get_attention_map(im, layer_id)
