@@ -147,15 +147,15 @@ def validation_function(model,val_dataloader, n_channels, device,optimizer, loss
         confusion_mat = calculate_confusion_matrix(output, target, num_classes = 13)
         metrics_df = calculate_performance_metrics(confusion_mat, class_labels)
         wandb_image_list =[]
-        if i % eval_freq == 0 :
-            wandb_image_list.append(
-                wandb.Image(image[0,:,:,:].permute(1, 2, 0).cpu().numpy(), 
-                masks={"prediction" :
-                {"mask_data" : output.argmax(dim=1)[0,:,:].cpu().numpy(), "class_labels" : class_labels},
-                "ground truth" : 
-                {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
-                caption= "{}_batch_{}".format(i, batch['id'])))
-                
+        # if i % eval_freq == 0 :
+        wandb_image_list.append(
+            wandb.Image(image[0,:,:,:].permute(1, 2, 0).cpu().numpy(), 
+            masks={"prediction" :
+            {"mask_data" : output.argmax(dim=1)[0,:,:].cpu().numpy(), "class_labels" : class_labels},
+            "ground truth" : 
+            {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
+            caption= "{}_batch_{}".format(i, batch['id'])))
+            
     val_loss = {'loss': loss_sum / len(val_dataloader)} 
     val_acc = {'acc': acc_sum/ len(val_dataloader)}
     return model,val_acc, val_loss, metrics_df, confusion_mat, wandb_image_list
@@ -189,8 +189,7 @@ def test_function(model,test_dataloader, n_channels, device,optimizer, loss_fn, 
             #         "ground truth" : 
             #         {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
             #         caption= "{}_batch_{}".format(i, batch['id'])))
-                    
-        
+
         test_acc = {'acc': acc_sum/ len(test_dataloader)}
     return test_acc, metrics_df, confusion_mat
 
@@ -239,8 +238,7 @@ def calculate_performance_metrics(confusion_mat, classnames):
         metrics['f1'].append((class_name, f1))
         
         metrics_df = pd.DataFrame.from_dict({k: dict(v) for k, v in metrics.items()})
-        metrics_df.index.name = 'Class' 
-        
+        metrics_df.index = metrics_df.index.map(class_names)
 
     return metrics_df
 

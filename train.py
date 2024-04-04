@@ -1,10 +1,10 @@
 import os
 import glob
 import time
-import tabulate
+
 import fnmatch
 import random
-
+import logging
 from rasterio.windows import Window
 from argparse import ArgumentParser
 
@@ -19,30 +19,36 @@ from model.datasets import FlairDs
 from torchmetrics import Accuracy
 from model.configs.utils import *
 from model.datasets.utils import *
+import datetime
+
 
 
 def main(): 
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     parser = ArgumentParser()
-    parser.add_argument("--initial_lr", type=float, default = 0.001)
-    parser.add_argument("--final_lr", type=float, default = 0.0005)
+    parser.add_argument("--initial_lr", type=float, default = 0.01)
+    parser.add_argument("--final_lr", type=float, default = 0.005)
     parser.add_argument("--lr_milestones", nargs=2, type=float, default=(20,80))
     parser.add_argument("--epoch_len", type=int, default=10000)
     parser.add_argument("--sup_batch_size", type=int, default=8)
     parser.add_argument("--crop_size", type=int, default=256)
     parser.add_argument("--workers", default=6, type=int)
-    parser.add_argument('--img_aug', type=str, default='d4')
-    parser.add_argument('--max_epochs', type=int, default=120)
+    parser.add_argument('--img_aug', type=str, default='d4_rot90_rot180_d1flip_mixup')
+    parser.add_argument('--max_epochs', type=int, default=2)
     parser.add_argument('--train_split_coef', type = float, default = 0.75)   
     parser.add_argument('--sequence_path', type = str, default = "sequence_{}/")
-    parser.add_argument('--strategy', type = str, default = 'FT')
+    parser.add_argument('--strategy', type = str, default = 'FT_lora')
     parser.add_argument('--buffer_size', type = float, default = 0.2)
+    parser.add_argument('--config_file', type = str, default = "/d/maboum/rs-segsem-dil/model/configs/config.yml")
     args = parser.parse_args()
-    config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
-    # config_file ="/d/maboum/rs-segsem-dil/model/configs/config.yml"
+        
+    config_file = args.config_file
     config = load_config_yaml(file_path = config_file)
-    
+    # Get current date and time
+    current_datetime = datetime.datetime.now()
+    # Format date and time
+    formatted_datetime = current_datetime.strftime("%Y%m%d_%H%M%S")
     # Learning rate 
     def lambda_lr(epoch):
     
@@ -72,7 +78,7 @@ def main():
     n_class = data_config["n_cls"]
     class_names = data_config["classnames"]
     eval_freq = data_config["eval_freq"]
-    
+
     selected_model = "vit_base_patch16_224"
     model = config["model"]
     model_config = model[selected_model]
@@ -81,13 +87,26 @@ def main():
     d_model = model_config["d_model"]
     n_heads = model_config["n_heads"]
     n_layers = model_config["n_layers"]
+
+    train_type = config["train_type"]
+    lora_params = config["lora_parameters"]
+    lora_rank = lora_params["rank"]
+    lora_alpha = lora_params["rank"]
     
-    wandb.login(key = "ad58a41a99168fb44b86a70954b3728fe7818df2")
-    wandb.init(project="domain-incremental-semantic-segmentation-flair1")
+    wandb.login(key ="ad58a41a99168fb44b86a70954b3728fe7818df2")
+    
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.autograd.set_detect_anomaly(True) 
+    
+    logger = logging.getLogger(__name__)
+    logging.basicConfig(filename=f'run_{formatted_datetime}_{args.strategy}.log', 
+                        level=logging.DEBUG, filemode = 'w', force=True)
+    logging.info(f"{args} \n\n")
+    logging.info(f"hyperparameters for data processing : {data_config} \n\n")
+    logging.info(f"model hyperparams: {model_config} \n\n")
+    logging.info(f"paramètres lora : {lora_params} \n\n")
 
     list_of_tuples = [(item, data_sequence.index(item)) for item in data_sequence]
     if not os.path.exists(args.sequence_path.format(seed)):
@@ -97,9 +116,21 @@ def main():
     train_imgs = []    
     test_imgs = []
     
-    segmodel = Segmenter((im_size,im_size), n_layers, d_model, 4*d_model, 
-                         n_heads, n_class, patch_size, selected_model).to(device)
+    
+    segmodel = Segmenter(im_size, n_layers, d_model, 4*d_model, n_heads,n_class,
+                         patch_size, selected_model, lora_rank, lora_alpha).to(device)
     segmodel.load_pretrained_weights()
+
+    if train_type == "lora":
+        segmodel.lora_finetuning(lora_rank, lora_alpha, n_class)
+        num_params = sum(p.numel() for p in segmodel.parameters() if p.requires_grad)
+        logging.info(f"training strategy: {train_type}M \n\n")
+        logging.info(f"trainable parameters: {num_params/2**20:.4f}M \n\n")
+    elif train_type == "finetuning":
+        num_params = sum(p.numel() for p in segmodel.parameters() if p.requires_grad)
+        logging.info(f"training strategy: {train_type}M \n\n")
+        logging.info(f"trainable parameters: {num_params/2**20:.4f}M \n\n")
+
     test_dataloaders = []
     for step,domain in enumerate(data_sequence):
         # Définition de modèles
@@ -110,8 +141,12 @@ def main():
             pretrained_segmodel = torch.load(os.path.join(config["checkpoints"],args.sequence_path.format(seed), 
                                       '{}_{}_{}'.format(args.strategy,seed, step-1)))
             segmodel.load_state_dict(pretrained_segmodel)
-
-        wandb.init(tags = str(step), name = str(step)+'_'+args.strategy+'_'+str(seed), config = data_config)   
+       
+        wandb.init(project="domain-incremental-semantic-segmentation-flair1",
+                    tags = str(step), 
+                    name = str(step)+'_'+args.strategy+'_'+str(seed), 
+                    config = data_config) 
+          
         img = glob.glob(os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))
         random.shuffle(img)
         train_imgs += img[:int(len(img)*args.train_split_coef)]
@@ -152,7 +187,7 @@ def main():
         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
         accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
         # accuracy = Accuracy(num_classes=n_class).cuda()
-        for epoch in range(args.max_epochs):
+        for epoch in range(1,args.max_epochs):
 
             time_ep = time.time() 
             segmodel,train_loss, train_acc = train_function(segmodel,train_dataloader, n_channels, 
@@ -172,11 +207,11 @@ def main():
                        "train_loss": train_loss["loss"], 
                        "epochs" : epoch+1, 
                        "time" : time_ep})
-            wandb.log({"Predictions": [image for image in wandb_list]})
+            wandb.log({"Predictions": wandb_list})
             time_ep = time.time() - time_ep
             
-        best_model = Segmenter((im_size,im_size), n_layers, d_model, 4*d_model, 
-                             n_heads, n_class, patch_size, selected_model).to(device)
+        best_model = Segmenter(im_size, n_layers, d_model, 4*d_model, n_heads,
+                               n_class, patch_size, selected_model, lora_rank, lora_alpha).to(device)
         best_model.load_state_dict(torch.load(model_path))
         for test_step, test_domain in enumerate(data_sequence[:step+1]) : 
             test_acc, metrics_df, confusion_mat = test_function(best_model, 
@@ -185,27 +220,10 @@ def main():
                                                                 loss_fn, accuracy, scheduler, 
                                                                 class_labels, eval_freq)
             wandb.log({"test_accuracy": test_acc["acc"]})
+            logging.info(f"test_accuracy: {test_acc['acc']}M \n\n")
             wandb.log({f'Etape {step} : {test_domain}': wandb.Table(dataframe= metrics_df)})
+            
         wandb.finish()
 
 if __name__ == "__main__":
     main()   
-
-
- # if step !=0 and args.strategy == 'ER':
- #     coef_replay = args.buffer_size/5
- #     past_domain_img = []
- #     # past_domain_lbl = []
- #     idx_past = 0 if step-5<0 else step-5
- #     for source_domain in data_sequence[idx_past:step]:
- #         a_domain_img = [item for item in train_imgs if fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
- #         # a_domain_lbl = [item for item in train_lbl if fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/msk/MSK_*.tif'.format(domain)))] 
- #         coef = int(len(a_domain_img)*coef_replay) if int(len(a_domain_img)*coef_replay)>0 else 1
- #         a_domain_img_train = a_domain_img[:coef]
- #         # a_domain_lbl_train = a_domain_lbl[:coef]
- #         past_domain_img += a_domain_img_train
- #         # past_domain_lbl += a_domain_lbl_train
- #     domain_img = [item for item in train_imgs if  fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
- #     # domain_lbl = [item for item in train_lbl if fnmatch.fnmatch(item, os.path.join(directory_path, '{}/Z*_*/msk/MSK_*.tif'.format(domain)))]
- #     domain_img = domain_img + past_domain_img
- #     # domain_lbl = domain_lbl + past_domain_lbl

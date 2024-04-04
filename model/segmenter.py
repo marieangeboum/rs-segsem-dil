@@ -12,10 +12,8 @@ from model.decoder import *
 
 from model.vit import *
 from model.utils import padding, unpadding
-from model.lora.lora import LoRA_ViT
 from timm.models.layers import trunc_normal_
-
-
+from model.lora.lora import *
 class Segmenter(nn.Module):
     def __init__(
         self,
@@ -77,7 +75,7 @@ class Segmenter(nn.Module):
         im = padding(im, self.patch_size)
         H, W = im.size(2), im.size(3)
 
-        x = self.encoder(im, return_features=True)
+        x = self.encoder(im)
 
         # remove CLS/DIST tokens for decoding
         num_extra_tokens = 1 + self.encoder.distilled
@@ -99,10 +97,13 @@ class Segmenter(nn.Module):
         except Exception as e:
             # Handle any exceptions that occur during loading
             print("An error occurred while loading the pretrained model:", e)
-    def lora_finetuning(self):
-        try :
-            lora_vit = LoRA_ViT(vit_model = self.encoder, r= 4, alpha = 4, num_classes = n_cls)    
-
+    
+    def apply_lora(self, rank, alpha, n_cls):
+        lora_vit = LoRA_ViT_timm(vit_model = self.encoder, 
+                            r = rank, 
+                            alpha = alpha, 
+                            num_classes = n_cls)  
+        self.encoder = lora_vit 
     def get_attention_map_enc(self, im, layer_id):
         return self.encoder.get_attention_map(im, layer_id)
 
@@ -114,37 +115,3 @@ class Segmenter(nn.Module):
         x = x[:, num_extra_tokens:]
 
         return self.decoder.get_attention_map(x, layer_id)
-# class Segmenter(nn.Module):
-#     def __init__(self,
-#                  in_channels,
-#                  scale,
-#                  patch_size,
-#                  image_size,
-#                  enc_depth,
-#                  # dec_depth,
-#                  # variant,
-#                  enc_embdd,
-#                  # dec_embdd,
-#                  n_cls):
-#         super().__init__()
-#         self.encoder = ViT(in_channels,
-#                             patch_size,
-#                             enc_embdd,
-#                             image_size,
-#                             enc_depth)
-#         # model_kwargs = dict(patch_size=patch_size, embed_dim=enc_embdd, depth=enc_depth, num_heads=enc_depth)
-#         # self.encoder = _create_vision_transformer(variant, pretrained=True, **model_kwargs)
-       
-#         self.decoder = DecoderLinear(n_cls, patch_size, embedd_dim=enc_embdd)
-
-#     def forward(self, img):
-#         H, W = img.size(2), img.size(3)
-#         x = self.encoder(img)
-#         x = x[:, 1:]  # remove Cls token
-#         # x = x['fmaps']
-#         masks = self.decoder(x, (H, W))
-#         out = F.interpolate(masks, size=(H, W), mode="bilinear")
-#         return out
-
-# model=Segmenter(3,0.05,16,256,12,6,768,768,1)
-# print(model(torch.randn([16,3,256,256])).shape)

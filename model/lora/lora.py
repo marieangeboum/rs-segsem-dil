@@ -13,7 +13,7 @@ from timm.models.vision_transformer import VisionTransformer as timm_ViT
 from torch import Tensor
 from torch.nn.parameter import Parameter
 
-from base_vit import ViT
+from model.lora.base_vit import ViT
 
 
 class _LoRALayer(nn.Module):
@@ -52,12 +52,12 @@ class LoRA_ViT(nn.Module):
 
         assert r > 0
         assert alpha > 0
-        base_vit_dim = vit_model.transformer.blocks[0].attn.proj_q.in_features
+        base_vit_dim = vit_model.blocks[0].attn.proj_q.in_features
         dim = base_vit_dim
         if lora_layer:
             self.lora_layer = lora_layer
         else:
-            self.lora_layer = list(range(len(vit_model.transformer.blocks)))
+            self.lora_layer = list(range(len(vit_model.blocks)))
         # create for storage, then we can init them or load weights
         self.w_As = []  # These are linear layers
         self.w_Bs = []
@@ -67,7 +67,7 @@ class LoRA_ViT(nn.Module):
             param.requires_grad = False
 
         # Here, we do the surgery
-        for t_layer_i, blk in enumerate(vit_model.transformer.blocks):
+        for t_layer_i, blk in enumerate(vit_model.blocks):
             # If we only want few lora layer instead of all
             if t_layer_i not in self.lora_layer:
                 continue
@@ -87,7 +87,7 @@ class LoRA_ViT(nn.Module):
         self.reset_parameters()
         self.lora_vit = vit_model
         if num_classes > 0:
-            self.lora_vit.fc = nn.Linear(vit_model.fc.in_features, num_classes)
+            self.lora_vit.head = nn.Linear(vit_model.head.in_features, num_classes)
 
     def save_fc_parameters(self, filename: str) -> None:
         r"""Only safetensors is supported now.
@@ -95,9 +95,9 @@ class LoRA_ViT(nn.Module):
         pip install safetensor if you do not have one installed yet.
         """
         assert filename.endswith(".safetensors")
-        _in = self.lora_vit.fc.in_features
-        _out = self.lora_vit.fc.out_features
-        fc_tensors = {f"fc_{_in}in_{_out}out": self.lora_vit.fc.weight}
+        _in = self.lora_vit.head.in_features
+        _out = self.lora_vit.head.out_features
+        fc_tensors = {f"fc_{_in}in_{_out}out": self.lora_vit.head.weight}
         save_file(fc_tensors, filename)
 
     def load_fc_parameters(self, filename: str) -> None:
@@ -107,13 +107,13 @@ class LoRA_ViT(nn.Module):
         """
 
         assert filename.endswith(".safetensors")
-        _in = self.lora_vit.fc.in_features
-        _out = self.lora_vit.fc.out_features
+        _in = self.lora_vit.head.in_features
+        _out = self.lora_vit.head.out_features
         with safe_open(filename, framework="pt") as f:
             saved_key = f"fc_{_in}in_{_out}out"
             try:
                 saved_tensor = f.get_tensor(saved_key)
-                self.lora_vit.fc.weight = Parameter(saved_tensor)
+                self.lora_vit.head.weight = Parameter(saved_tensor)
             except ValueError:
                 print("this fc weight is not for this model")
 
@@ -129,9 +129,9 @@ class LoRA_ViT(nn.Module):
         a_tensors = {f"w_a_{i:03d}": self.w_As[i].weight for i in range(num_layer)}
         b_tensors = {f"w_b_{i:03d}": self.w_Bs[i].weight for i in range(num_layer)}
         
-        _in = self.lora_vit.fc.in_features
-        _out = self.lora_vit.fc.out_features
-        fc_tensors = {f"fc_{_in}in_{_out}out": self.lora_vit.fc.weight}
+        _in = self.lora_vit.head.in_features
+        _out = self.lora_vit.head.out_features
+        fc_tensors = {f"fc_{_in}in_{_out}out": self.lora_vit.head.weight}
         
         merged_dict = {**a_tensors, **b_tensors, **fc_tensors}
         save_file(merged_dict, filename)
@@ -155,12 +155,12 @@ class LoRA_ViT(nn.Module):
                 saved_tensor = f.get_tensor(saved_key)
                 w_B_linear.weight = Parameter(saved_tensor)
                 
-            _in = self.lora_vit.fc.in_features
-            _out = self.lora_vit.fc.out_features
+            _in = self.lora_vit.head.in_features
+            _out = self.lora_vit.head.out_features
             saved_key = f"fc_{_in}in_{_out}out"
             try:
                 saved_tensor = f.get_tensor(saved_key)
-                self.lora_vit.fc.weight = Parameter(saved_tensor)
+                self.lora_vit.head.weight = Parameter(saved_tensor)
             except ValueError:
                 print("this fc weight is not for this model")
 
@@ -215,7 +215,7 @@ class _LoRA_qkv_timm(nn.Module):
 
 
 class LoRA_ViT_timm(nn.Module):
-    def __init__(self, vit_model: timm_ViT, r: int, alpha: int, num_classes: int = 0, lora_layer=None):
+    def __init__(self, vit_model: timm_ViT, r: int, alpha: int, num_classes: int = 0, distilled = False, lora_layer=None):
         super(LoRA_ViT_timm, self).__init__()
 
         assert r > 0
@@ -229,7 +229,7 @@ class LoRA_ViT_timm(nn.Module):
         # create for storage, then we can init them or load weights
         self.w_As = []  # These are linear layers
         self.w_Bs = []
-
+        self.distilled = distilled
         # lets freeze first
         for param in vit_model.parameters():
             param.requires_grad = False
@@ -261,8 +261,8 @@ class LoRA_ViT_timm(nn.Module):
         self.reset_parameters()
         self.lora_vit = vit_model
         self.proj_3d = nn.Linear(num_classes * 30, num_classes)
-        if num_classes > 0:
-            self.lora_vit.reset_classifier(num_classes=num_classes)
+        # if num_classes > 0:
+        #     self.lora_vit.reset_classifier(num_classes=num_classes)
             # self.lora_vit.head = nn.Linear(
             #     self.dim, num_classes)
 
