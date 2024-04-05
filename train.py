@@ -5,6 +5,8 @@ import time
 import fnmatch
 import random
 import logging
+import datetime
+
 from rasterio.windows import Window
 from argparse import ArgumentParser
 
@@ -19,7 +21,7 @@ from model.datasets import FlairDs
 from torchmetrics import Accuracy
 from model.configs.utils import *
 from model.datasets.utils import *
-import datetime
+
 
 
 
@@ -34,20 +36,20 @@ def main():
     parser.add_argument("--sup_batch_size", type=int, default=8)
     parser.add_argument("--crop_size", type=int, default=256)
     parser.add_argument("--workers", default=6, type=int)
-    parser.add_argument('--img_aug', type=str, default='d4_rot90_rot180_d1flip_mixup')
-    parser.add_argument('--max_epochs', type=int, default=2)
+    parser.add_argument('--img_aug', type=str, default='d4_rot90_rot270_rot180_d1flip')
+    parser.add_argument('--max_epochs', type=int, default=100)
     parser.add_argument('--train_split_coef', type = float, default = 0.75)   
     parser.add_argument('--sequence_path', type = str, default = "sequence_{}/")
     parser.add_argument('--strategy', type = str, default = 'FT_lora')
     parser.add_argument('--buffer_size', type = float, default = 0.2)
-    parser.add_argument('--config_file', type = str, default = "/d/maboum/rs-segsem-dil/model/configs/config.yml")
+    parser.add_argument('--config_file', type = str, 
+                        default = "/d/maboum/rs-segsem-dil/model/configs/config.yml")
     args = parser.parse_args()
         
     config_file = args.config_file
     config = load_config_yaml(file_path = config_file)
     # Get current date and time
     current_datetime = datetime.datetime.now()
-    # Format date and time
     formatted_datetime = current_datetime.strftime("%Y%m%d_%H%M%S")
     # Learning rate 
     def lambda_lr(epoch):
@@ -76,7 +78,7 @@ def main():
     win_stride = data_config["window_stride"]
     n_channels = data_config['n_channels']
     n_class = data_config["n_cls"]
-    class_names = data_config["classnames"]
+    class_names = data_config["classnames_binary"]
     eval_freq = data_config["eval_freq"]
 
     selected_model = "vit_base_patch16_224"
@@ -99,8 +101,11 @@ def main():
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.autograd.set_detect_anomaly(True) 
+    random.seed(seed)
     
     logger = logging.getLogger(__name__)
+    logfile = os.path.join(config["checkpoints"],
+                           f'run_{formatted_datetime}_{args.strategy}.log')
     logging.basicConfig(filename=f'run_{formatted_datetime}_{args.strategy}.log', 
                         level=logging.DEBUG, filemode = 'w', force=True)
     logging.info(f"{args} \n\n")
@@ -113,7 +118,7 @@ def main():
         os.makedirs(os.path.join(config["checkpoints"],
                                  args.sequence_path.format(seed)))  
         
-    train_imgs = []    
+    train_imgs = []
     test_imgs = []
     
     
@@ -122,7 +127,8 @@ def main():
     segmodel.load_pretrained_weights()
 
     if train_type == "lora":
-        segmodel.lora_finetuning(lora_rank, lora_alpha, n_class)
+        segmodel.apply_lora(lora_rank, lora_alpha, n_class)
+        segmodel.to(device)
         num_params = sum(p.numel() for p in segmodel.parameters() if p.requires_grad)
         logging.info(f"training strategy: {train_type}M \n\n")
         logging.info(f"trainable parameters: {num_params/2**20:.4f}M \n\n")
@@ -142,7 +148,7 @@ def main():
                                       '{}_{}_{}'.format(args.strategy,seed, step-1)))
             segmodel.load_state_dict(pretrained_segmodel)
        
-        wandb.init(project="domain-incremental-semantic-segmentation-flair1",
+        wandb.init(project="baseline-experiments",
                     tags = str(step), 
                     name = str(step)+'_'+args.strategy+'_'+str(seed), 
                     config = data_config) 
@@ -157,6 +163,7 @@ def main():
                     fnmatch.fnmatch(item, os.path.join(directory_path, 
                     '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
         random.shuffle(domain_img)
+        
         domain_img_test = [item for item in test_imgs if  
                     fnmatch.fnmatch(item, os.path.join(directory_path, 
                     '{}/Z*_*/img/IMG_*.tif'.format(domain)))]
@@ -183,9 +190,9 @@ def main():
         optimizer = SGD(segmodel.parameters(),
                         lr=args.initial_lr,
                         momentum=0.9)
-        loss_fn = torch.nn.CrossEntropyLoss().cuda() 
+        loss_fn= torch.nn.BCEWithLogitsLoss().cuda() 
         scheduler = LambdaLR(optimizer,lr_lambda= lambda_lr, verbose = True)
-        accuracy = Accuracy(task='multiclass',num_classes=n_class).cuda()
+        accuracy = Accuracy(task='binary',num_classes=n_class).cuda()
         # accuracy = Accuracy(num_classes=n_class).cuda()
         for epoch in range(1,args.max_epochs):
 
@@ -193,7 +200,7 @@ def main():
             segmodel,train_loss, train_acc = train_function(segmodel,train_dataloader, n_channels, 
                                                           device,optimizer, loss_fn, accuracy ,scheduler)
             print(train_loss, train_acc)
-            segmodel,val_acc, val_loss, metrics_df, confusion_mat, wandb_list = validation_function(segmodel,val_dataloader, 
+            segmodel,val_acc, val_loss, metrics_df, confusion_mat = validation_function(segmodel,val_dataloader, 
                                                                                         n_channels, device,optimizer, 
                                                                                         loss_fn, accuracy ,scheduler, 
                                                                                         class_names, eval_freq)
@@ -207,22 +214,22 @@ def main():
                        "train_loss": train_loss["loss"], 
                        "epochs" : epoch+1, 
                        "time" : time_ep})
-            wandb.log({"Predictions": wandb_list})
+            
             time_ep = time.time() - time_ep
             
-        best_model = Segmenter(im_size, n_layers, d_model, 4*d_model, n_heads,
-                               n_class, patch_size, selected_model, lora_rank, lora_alpha).to(device)
-        best_model.load_state_dict(torch.load(model_path))
+        # best_model = Segmenter(im_size, n_layers, d_model, 4*d_model, n_heads,
+        #                        n_class, patch_size, selected_model, lora_rank, lora_alpha).to(device)
+        # best_model = torch.load(model_path)
         for test_step, test_domain in enumerate(data_sequence[:step+1]) : 
-            test_acc, metrics_df, confusion_mat = test_function(best_model, 
+            test_acc, metrics_df, confusion_mat = test_function(segmodel, 
                                                                 test_dataloaders[test_step], 
                                                                 n_channels, device, optimizer, 
                                                                 loss_fn, accuracy, scheduler, 
-                                                                class_labels, eval_freq)
+                                                                class_names, eval_freq)
             wandb.log({"test_accuracy": test_acc["acc"]})
             logging.info(f"test_accuracy: {test_acc['acc']}M \n\n")
             wandb.log({f'Etape {step} : {test_domain}': wandb.Table(dataframe= metrics_df)})
-            
+            # wandb.log({"Predictions (Step {test_step} Domain {test_domain})": wandb_list})
         wandb.finish()
 
 if __name__ == "__main__":

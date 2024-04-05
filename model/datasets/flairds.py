@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 class FlairDs(Dataset):
 
-    def __init__(self,image_path,tile,fixed_crops, crop_size,crop_step, img_aug,label_path=None, *args,**kwargs):
+    def __init__(self,image_path,tile,fixed_crops, crop_size,crop_step, img_aug,label_path=None,binary = False,label_binary = None, *args,**kwargs):
 
         self.image_path = image_path # path to image
         self.label_path = label_path # pth to corresponding label
@@ -32,6 +32,8 @@ class FlairDs(Dataset):
         #print("crop windows", self.crop_windows)
         self.crop_size = crop_size # initializing crop size
         self.img_aug = get_transforms(img_aug)
+        self.binary = binary
+        self.label_binary = label_binary
 
 
     def read_label(self, label_path, window):
@@ -68,8 +70,6 @@ class FlairDs(Dataset):
 
         # converts image crop into a tensor more precisely returns a contiguous tensor containing the same data as self tensor.
         image = torch.from_numpy(image_rasterio).float().contiguous()
-        
-
         label = None
         if self.label_path:
             label = self.read_label(
@@ -82,22 +82,21 @@ class FlairDs(Dataset):
                 #print ('label', type(label))
                 #show(label)
             # converts label crop into contiguous tensor
-            
             label = torch.from_numpy(label).float().contiguous()
-            mask = label >= 13
-            label[mask] = 13
-            multi_labels = label.float()
-            multi_labels -= 1
-
+            if self.binary :
+                final_label = (torch.eq(label, self.label_binary)).float()
+                
+            else :
+                mask = label >= 13
+                label[mask] = 13
+                multi_labels = label.float()
+                multi_labels -= 1
+                final_label = multi_labels
 
         if self.img_aug is not None:            
-            
-                        
-            final_image, final_mask = self.img_aug(img=image, label=multi_labels)
-            
+            final_image, final_mask = self.img_aug(img=image, label=final_label)
         else:
-            final_image, final_mask = image, final_mask_bati
-        
+            final_image, final_mask = image, final_label
         return {'orig_image':image,
                 'orig_mask': label,
                 'id' : domain_pattern,

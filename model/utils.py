@@ -64,7 +64,6 @@ def checkpoint_filter_fn(state_dict, model):
 def padding(im, patch_size, fill_value=0):
     # make the image sizes divisible by patch_size
     H, W = im.size(2), im.size(3)
-    print(H,W)
     pad_h, pad_w = 0, 0
     if H % patch_size > 0:
         pad_h = patch_size - (H % patch_size)

@@ -18,9 +18,9 @@ class PatchEmbedding(nn.Module):
         super().__init__()
 
         self.image_size = image_size
-        if image_size[0] % patch_size != 0 or image_size[1] % patch_size != 0:
+        if image_size % patch_size != 0 or image_size % patch_size != 0:
             raise ValueError("image dimensions must be divisible by the patch size")
-        self.grid_size = image_size[0] // patch_size, image_size[1] // patch_size
+        self.grid_size = image_size // patch_size, image_size// patch_size
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.patch_size = patch_size
 

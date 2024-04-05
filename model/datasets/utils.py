@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader, RandomSampler, ConcatDataset
 from dl_toolbox.torch_collate import CustomCollate
 from dl_toolbox.callbacks import *
 
-
+# ya moyend de faire en sorte que les params soient pris en compte dans args ( mal formulé)
 def create_train_dataloader(domain_img_train, data_path, im_size, win_size, win_stride, 
                             img_aug, n_workers, sup_batch_size, epoch_len): 
     # Train dataset
@@ -35,7 +35,7 @@ def create_train_dataloader(domain_img_train, data_path, im_size, win_size, win_
                             tile=Window(col_off=0, row_off=0, width=im_size, height=im_size),
                             crop_size=win_size,        
                             crop_step=win_stride,
-                            img_aug=img_aug))
+                            img_aug=img_aug, binary= True, label_binary=1))
     print("train datasets", len(train_datasets))
     trainset = ConcatDataset(train_datasets) 
     train_sampler = RandomSampler(
@@ -59,11 +59,11 @@ def create_val_dataloader(domain_img_val, data_path, im_size, win_size, win_stri
         img_pattern = img_path_strings[-1].split('_')[-1].strip('.tif')
         lbl_path = glob.glob(os.path.join(data_path, '{}/Z*_*/msk/MSK_{}.tif'.format(domain_pattern, img_pattern)))[0]
         # print(img_path, domain_pattern,img_pattern,lbl_path)
-        val_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = True,
+        val_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = False,
                             tile=Window(col_off=0, row_off=0, width=im_size, height=im_size),
                             crop_size=win_size,        
                             crop_step=win_stride,
-                            img_aug=img_aug))
+                            img_aug=img_aug, binary= True, label_binary=1))
     print("val datasets", len(val_datasets))
     valset =  ConcatDataset(val_datasets)
     val_dataloader = DataLoader(
@@ -83,11 +83,11 @@ def create_test_dataloader(domain_img_test, data_path, im_size, win_size, win_st
         domain_pattern = img_path_strings[-4]
         img_pattern = img_path_strings[-1].split('_')[-1].strip('.tif')
         lbl_path = glob.glob(os.path.join(data_path, '{}/Z*_*/msk/MSK_{}.tif'.format(domain_pattern, img_pattern)))[0]
-        test_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = True,
+        test_datasets.append(FlairDs(image_path = img_path, label_path = lbl_path, fixed_crops = False,
                             tile=Window(col_off=0, row_off=0, width=im_size, height=im_size),
                             crop_size=win_size,        
                             crop_step=win_stride,
-                            img_aug=img_aug))
+                            img_aug=img_aug, binary= True, label_binary=1))
          
     testset =  ConcatDataset(test_datasets)
     test_dataloader = DataLoader(
@@ -106,18 +106,22 @@ def train_function(model,train_dataloader, n_channels, device,optimizer, loss_fn
 
         image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
         target = (batch['mask']).to(device)
-        torch.unique(target, dim=1)
-        target = torch.squeeze(target, dim=1).long()
+        
+        # torch.unique(target, dim=1)
+        # target = torch.squeeze(target, dim=1)
         optimizer.zero_grad()
         logits = model(image)
-        loss = loss_fn(F.softmax(logits, dim=1), target)
+        
+        
+        # target = F.one_hot(target, num_classes=2).permute(0, 3, 1, 2)
+        loss = loss_fn(logits, target)
 
         batch['preds'] = logits
         batch['image'] = image 
         
         loss.backward()
         optimizer.step()  
-
+        
         acc_sum += accuracy(logits, target)
         loss_sum += loss.item()
     train_loss = {'loss': loss_sum / len(train_dataloader)}
@@ -129,67 +133,73 @@ def validation_function(model,val_dataloader, n_channels, device,optimizer, loss
     loss_sum = 0.0
     acc_sum = 0.0
     scheduler.step()
+    wandb_image_list =[]
     for i, batch in tqdm(enumerate(val_dataloader), total = len(val_dataloader)):
 
         image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
         target = (batch['mask']).to(device)  
-        output = model(image)  
-        target = torch.squeeze(target, dim=1).long()
-        loss = loss_fn(F.softmax(output, dim=1), target)
+        output = model(image)
+        # target = torch.squeeze(target, dim=1)
+        # target = F.one_hot(target, num_classes=2).permute(0, 3, 1, 2)
+        loss = loss_fn(output, target)
 
     
         batch['preds'] = output
         batch['image'] = image 
         loss_sum += loss.item()
+        
         # acc_sum += accuracy(torch.transpose(output,0,1).reshape(2, -1).t(), 
         #                     torch.transpose(target.to(torch.uint8),0,1).reshape(2, -1).t())
-        acc_sum += accuracy(F.softmax(output, dim=1), target)
-        confusion_mat = calculate_confusion_matrix(output, target, num_classes = 13)
+        acc_sum += accuracy(output, target)
+        confusion_mat = calculate_confusion_matrix(output, target, num_classes = 2)
         metrics_df = calculate_performance_metrics(confusion_mat, class_labels)
-        wandb_image_list =[]
-        # if i % eval_freq == 0 :
+        
         wandb_image_list.append(
             wandb.Image(image[0,:,:,:].permute(1, 2, 0).cpu().numpy(), 
             masks={"prediction" :
             {"mask_data" : output.argmax(dim=1)[0,:,:].cpu().numpy(), "class_labels" : class_labels},
             "ground truth" : 
-            {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
-            caption= "{}_batch_{}".format(i, batch['id'])))
-            
+            {"mask_data" : target[0,0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
+            caption= "batch_{}_domain_{}".format(i, batch['id'][0])))
+        if i % eval_freq == 0 :
+            wandb.log({"Predictions": wandb_image_list})
     val_loss = {'loss': loss_sum / len(val_dataloader)} 
     val_acc = {'acc': acc_sum/ len(val_dataloader)}
-    return model,val_acc, val_loss, metrics_df, confusion_mat, wandb_image_list
+    return model,val_acc, val_loss, metrics_df, confusion_mat
 
 def test_function(model,test_dataloader, n_channels, device,optimizer, loss_fn, accuracy ,scheduler, class_labels, eval_freq):
 
     loss_sum = 0.0
     acc_sum = 0.0
     scheduler.step()
+    wandb_image_test =[]
     with torch.no_grad():
         
         for i, batch in tqdm(enumerate(test_dataloader), total = len(test_dataloader)):
     
             image = (batch['image'][:,:n_channels,:,:]/255.).to(device)
             target = (batch['mask']).to(device)  
-            output = model(image)  
-            target = torch.squeeze(target, dim=1).long()
-            
+            output = model(image)
+          
+            # target = torch.squeeze(target, dim=1)
+            # target = F.one_hot(target, num_classes=2).permute(0, 3, 1, 2)
             batch['preds'] = output
             batch['image'] = image 
             
             acc_sum += accuracy(F.softmax(output, dim=1), target)
-            confusion_mat = calculate_confusion_matrix(output, target, num_classes = 13)
+            confusion_mat = calculate_confusion_matrix(output, target, num_classes = 2)
             metrics_df = calculate_performance_metrics(confusion_mat, class_labels)
-            # wandb_image_list =[]
+            
+            
+            # wandb_image_test.append(
+            #     wandb.Image(image[0,:,:,:].permute(1, 2, 0).cpu().numpy(), 
+            #     masks={"prediction" :
+            #     {"mask_data" : output.argmax(dim=1)[0,:,:].cpu().numpy(), "class_labels" : class_labels},
+            #     "ground truth" : 
+            #     {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
+            #     caption= "batch_{}_domain_{}".format(i, batch['id'][0])))
             # if i % eval_freq == 0 :
-            #     wandb_image_list.append(
-            #         wandb.Image(image[0,:,:,:].permute(1, 2, 0).cpu().numpy(), 
-            #         masks={"prediction" :
-            #         {"mask_data" : output.argmax(dim=1)[0,:,:].cpu().numpy(), "class_labels" : class_labels},
-            #         "ground truth" : 
-            #         {"mask_data" : target[0,:,:].cpu().numpy(), "class_labels" : class_labels}}, 
-            #         caption= "{}_batch_{}".format(i, batch['id'])))
-
+            #     wandb.log({"Predictions": wandb_image_test})
         test_acc = {'acc': acc_sum/ len(test_dataloader)}
     return test_acc, metrics_df, confusion_mat
 
@@ -238,7 +248,7 @@ def calculate_performance_metrics(confusion_mat, classnames):
         metrics['f1'].append((class_name, f1))
         
         metrics_df = pd.DataFrame.from_dict({k: dict(v) for k, v in metrics.items()})
-        metrics_df.index = metrics_df.index.map(class_names)
+        metrics_df.index = metrics_df.index.map(classnames)
 
     return metrics_df
 
